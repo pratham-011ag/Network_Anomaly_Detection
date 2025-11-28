@@ -1,0 +1,14 @@
+# Ignore Virtual Environment
+venv/
+env/
+.DS_Store
+
+# Ignore Compiled Python files
+__pycache__/
+*.pyc
+
+# Ignore huge datasets (User can generate them using the script)
+data/kdd_cup*
+
+# Keep the folder structure, but ignore temp files
+.ipynb_checkpoints
