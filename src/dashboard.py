@@ -71,43 +71,88 @@ with chart_col:
 with log_col:
     log_placeholder = st.empty()
 
+# --- RUN LOOP ---
 if st.button("▶️ Start Live Simulation"):
+    
+    # Load Model based on selection
     if "Isolation" in model_choice:
         model = load_iso_forest()
     else:
         model, scaler, base_threshold = load_autoencoder()
+        # Apply Sensitivity Logic
         effective_threshold = base_threshold * multiplier
 
     for i in range(50):
+        # Random Sample
         idx = np.random.randint(0, len(X_data))
         row = X_data.iloc[[idx]]
         actual = y_labels.iloc[idx]
 
+        # --- PREDICTION LOGIC ---
         if "Isolation" in model_choice:
             score = model.decision_function(row)[0]
+            # Sensitivity Logic
             iso_cutoff = 0.0 + (0.05 if sensitivity == "High" else -0.05 if sensitivity == "Low" else 0.0)
             is_anomaly = score < iso_cutoff
-        else:
+            
+        else: # Autoencoder
             row_scaled = scaler.transform(row)
-            # Scikit-Learn predict() works same as Keras here
             reconstruction = model.predict(row_scaled)
             loss = np.mean(np.power(row_scaled - reconstruction, 2))
-            score = -loss
+            score = -loss 
             is_anomaly = loss > effective_threshold
 
+        # Visualization
         status = "🚨 ANOMALY" if is_anomaly else "✅ NORMAL"
-        st.session_state.history.append({"Type": actual, "Score": round(score, 4), "Status": status})
         
+        # --- FIXED HISTORY APPEND ---
+        st.session_state.history.append({
+            "Packet ID": idx,           # <--- THIS IS THE KEY FIX
+            "Type": actual, 
+            "Score": round(score, 4), 
+            "Status": status
+        })
+        
+        # Metrics
         df_hist = pd.DataFrame(st.session_state.history)
-        anomalies = len(df_hist[df_hist['Status'] == "🚨 ANOMALY"])
+        total_anomalies = len(df_hist[df_hist['Status'] == "🚨 ANOMALY"])
         
-        metric_total.metric("Packets", len(df_hist))
-        metric_normal.metric("Normal", len(df_hist) - anomalies)
-        metric_attack.metric("Threats", anomalies)
+        metric_total.metric("Total Packets", len(df_hist))
+        metric_normal.metric("Normal", len(df_hist) - total_anomalies)
+        metric_attack.metric("Threats", total_anomalies)
         
-        if is_anomaly: status_indicator.error(f"THREAT: {actual}")
-        else: status_indicator.success("SECURE")
+        if is_anomaly:
+            status_indicator.error(f"THREAT: {actual}")
+        else:
+            status_indicator.success("SECURE")
             
+        # Update Charts
         chart_placeholder.line_chart(df_hist['Score'].tail(50))
         log_placeholder.dataframe(df_hist[['Type', 'Status']].tail(8), height=300)
+        
         time.sleep(0.05)
+
+# --- MLOPS: FEEDBACK LOOP ---
+st.markdown("---")
+st.subheader("📝 MLOPS: Human Feedback Loop")
+
+with st.expander("Report False Alarm (Teach the Model)"):
+    st.write("Did the model flag a normal packet as an Anomaly? Select it below to add it to the training set.")
+    
+    if len(st.session_state.history) > 0:
+        history_df = pd.DataFrame(st.session_state.history)
+        anomalies = history_df[history_df['Status'] == "🚨 ANOMALY"]
+        
+        if not anomalies.empty:
+            selected_id = st.selectbox("Select Packet ID to Report:", anomalies['Packet ID'])
+            
+            if st.button("Mark as False Positive (Safe)"):
+                row_data = X_data.iloc[[selected_id]]
+                feedback_file = "data/feedback_loop.csv"
+                header = not os.path.exists(feedback_file)
+                row_data.to_csv(feedback_file, mode='a', header=header, index=False)
+                st.success(f"Packet #{selected_id} saved to Feedback Loop! The model will learn this pattern next retraining cycle.")
+        else:
+            st.info("No anomalies detected yet to report.")
+    else:
+        st.info("Run the simulation first to generate data.")
