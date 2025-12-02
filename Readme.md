@@ -1,4 +1,4 @@
-# 🛡️ Zero-Trust Network Anomaly Detection System
+# 🛡️ Real-Time Zero-Trust Network Anomaly Detection System
 
 > A Semi-Supervised Intrusion Detection System (IDS) engineered to detect Zero-Day attacks and encrypted threats using Autoencoders and MLOps pipelines.
 
@@ -122,3 +122,4 @@ The system was validated on the **KDD Cup 99** and **CIC-IDS2017** datasets.
 ## ✍️ Author
 
 **Aryan Gupta**
+
