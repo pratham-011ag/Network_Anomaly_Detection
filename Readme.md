@@ -20,7 +20,7 @@ This project implements a **Zero-Trust (Semi-Supervised)** architecture:
 ## 📸 Real-Time Dashboard (SOC Interface)
 The system includes a Streamlit-based Security Operations Center (SOC) dashboard with **Explainable AI (XAI)**.
 
-![Dashboard Screenshot](results/dashboard_screenshot.png)
+![Dashboard Screenshot](results/dashboard_screenshot.jpg)
 *(Displays Live Packet Stream, Anomaly Scores, and Root Cause Analysis Charts)*
 
 ---
@@ -122,4 +122,5 @@ The system was validated on the **KDD Cup 99** and **CIC-IDS2017** datasets.
 ## ✍️ Author
 
 **Aryan Gupta**
+
 
