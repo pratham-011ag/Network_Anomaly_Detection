@@ -12,3 +12,4 @@ data/kdd_cup*
 
 # Keep the folder structure, but ignore temp files
 .ipynb_checkpoints
+data/modern_traffic.csv

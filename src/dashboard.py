@@ -8,14 +8,20 @@ import pandas as pd
 import numpy as np
 import joblib
 import time
-from sklearn.datasets import fetch_kddcup99
 from sklearn.preprocessing import LabelEncoder
+
+# --- NEW IMPORT: USE THE CENTRAL DATA LOADER ---
+# This ensures Dashboard sees the same data as the Training Script
+try:
+    from data_loader import load_data
+except ImportError:
+    # Fallback if running from root directory
+    from src.data_loader import load_data
 
 # --- PAGE CONFIG ---
 st.set_page_config(page_title="Network Anomaly Guard", page_icon="🛡️", layout="wide")
 
 # --- PATHS ---
-# Using the Scikit-Learn versions to prevent Mac crashing
 ISO_FOREST_PATH = "models/kdd_isolation_forest_fixed.pkl"
 AUTOENCODER_PATH = "models/autoencoder_sklearn.pkl"
 SCALER_PATH = "models/scaler.pkl"
@@ -30,7 +36,6 @@ def load_iso_forest():
 
 @st.cache_resource
 def load_autoencoder():
-    # Load Scikit-Learn MLPRegressor (Safe for Mac)
     model = joblib.load(AUTOENCODER_PATH)
     scaler = joblib.load(SCALER_PATH)
     threshold = np.load(THRESHOLD_PATH)
@@ -38,21 +43,15 @@ def load_autoencoder():
 
 @st.cache_data
 def load_sample_data():
-    # Load 10% data for smooth simulation
-    data = fetch_kddcup99(percent10=True, as_frame=True)
-    df = data.frame
+    # CALL THE CENTRAL LOADER (Fixes the Feature Mismatch)
+    df = load_data() 
     
-    # Cleaning & Encoding
-    for col in df.columns:
-        if df[col].dtype == object:
-             df[col] = df[col].apply(lambda x: x.decode('utf-8') if isinstance(x, bytes) else x)
-    labels = df['labels'].copy()
-    for col in df.select_dtypes(include=['object']).columns:
-        if col != 'labels':
-            le = LabelEncoder()
-            df[col] = le.fit_transform(df[col])
-    X = df.drop('labels', axis=1)
-    return X, labels
+    # Split into Features (X) and Labels (y)
+    # The loader returns 'is_anomaly' as 0 or 1
+    y = df['is_anomaly'].apply(lambda x: "Normal" if x == 0 else "Anomaly")
+    X = df.drop('is_anomaly', axis=1)
+    
+    return X, y
 
 # --- MAIN APP UI ---
 st.title("🛡️ Network Anomaly Detection System")
@@ -60,13 +59,11 @@ st.title("🛡️ Network Anomaly Detection System")
 # --- SIDEBAR: CONTROLS ---
 st.sidebar.header("⚙️ Control Panel")
 
-# 1. Engine Selection
 model_choice = st.sidebar.selectbox(
     "Select Detection Engine:",
     ("Isolation Forest (Statistical)", "Autoencoder (Deep Learning)")
 )
 
-# 2. Sensitivity Slider
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎚️ Sensitivity Level")
 sensitivity = st.sidebar.select_slider(
@@ -75,16 +72,13 @@ sensitivity = st.sidebar.select_slider(
     value="Medium"
 )
 
-# Logic map: High Sensitivity = Lower Threshold (Catch more)
 sensitivity_map = {"Low": 1.5, "Medium": 1.0, "High": 0.8}
 multiplier = sensitivity_map[sensitivity]
-
 st.sidebar.info(f"Threshold Multiplier: **{multiplier}x**")
 
 # --- LOAD DATA ---
 X_data, y_labels = load_sample_data()
 
-# Initialize Session State
 if 'stream_index' not in st.session_state: st.session_state.stream_index = 0
 if 'history' not in st.session_state: st.session_state.history = []
 
@@ -95,13 +89,12 @@ metric_normal = col2.empty()
 metric_attack = col3.empty()
 status_indicator = col4.empty()
 
-# Create two columns: Charts (Left) and Log (Right)
 chart_col, log_col = st.columns([2, 1])
 
 with chart_col:
     st.markdown("#### Live Anomaly Score")
-    chart_placeholder = st.empty()   # For the Line Chart
-    explain_placeholder = st.empty() # For the Bar Chart (Explainability)
+    chart_placeholder = st.empty()
+    explain_placeholder = st.empty()
 
 with log_col:
     st.markdown("#### Traffic Log")
@@ -110,7 +103,6 @@ with log_col:
 # --- SIMULATION LOOP ---
 if st.button("▶️ Start Live Simulation"):
     
-    # Load selected model
     if "Isolation" in model_choice:
         model = load_iso_forest()
     else:
@@ -125,33 +117,22 @@ if st.button("▶️ Start Live Simulation"):
 
         # --- PREDICTION LOGIC ---
         if "Isolation" in model_choice:
-            # Isolation Forest Logic
             score = model.decision_function(row)[0]
-            # Dynamic Sensitivity Cutoff
             iso_cutoff = 0.0 + (0.05 if sensitivity == "High" else -0.05 if sensitivity == "Low" else 0.0)
             is_anomaly = score < iso_cutoff
-            
-            # Clear explanation chart for IsoForest (it doesn't support reconstruction error)
-            explain_placeholder.empty()
+            # explain_placeholder.empty()
             
         else: 
-            # Autoencoder Logic (Deep Learning)
             row_scaled = scaler.transform(row)
             reconstruction = model.predict(row_scaled)
-            
-            # MSE (Total Error)
             loss = np.mean(np.power(row_scaled - reconstruction, 2))
             score = -loss 
-            
-            # Check Threshold
             is_anomaly = loss > effective_threshold
             
-            # --- EXPLAINABILITY (XAI) ---
+            # --- EXPLAINABILITY ---
             if is_anomaly:
                 features = X_data.columns
-                # Error per feature
                 error_vector = np.power(row_scaled - reconstruction, 2)[0]
-                
                 explanation_df = pd.DataFrame({
                     'Feature': features,
                     'Error': error_vector
@@ -160,13 +141,11 @@ if st.button("▶️ Start Live Simulation"):
                 with explain_placeholder.container():
                     st.error("🚨 ANOMALY CAUSE (Top Factors):")
                     st.bar_chart(explanation_df.set_index('Feature'))
-            else:
-                explain_placeholder.empty()
+            # else:
+            #    explain_placeholder.empty()
 
-        # Update Status
         status = "🚨 ANOMALY" if is_anomaly else "✅ NORMAL"
         
-        # Save to History
         st.session_state.history.append({
             "Packet ID": idx,
             "Type": actual_label,
@@ -174,7 +153,6 @@ if st.button("▶️ Start Live Simulation"):
             "Status": status
         })
         
-        # Update Metrics
         df_hist = pd.DataFrame(st.session_state.history)
         total_anomalies = len(df_hist[df_hist['Status'] == "🚨 ANOMALY"])
         
@@ -183,14 +161,12 @@ if st.button("▶️ Start Live Simulation"):
         metric_attack.metric("Threats", total_anomalies)
         
         if is_anomaly:
-            status_indicator.error(f"THREAT: {actual_label}")
+            status_indicator.error(f"THREAT DETECTED")
         else:
             status_indicator.success("SECURE")
             
-        # Update Charts
         chart_placeholder.line_chart(df_hist['Score'].tail(50))
         log_placeholder.dataframe(df_hist[['Type', 'Status']].tail(8), height=300)
-        
         time.sleep(0.05)
 
 # --- MLOPS: HUMAN FEEDBACK LOOP ---
@@ -198,27 +174,18 @@ st.markdown("---")
 st.subheader("📝 MLOPS: Human Feedback Loop")
 
 with st.expander("Report False Alarm (Teach the Model)"):
-    st.write("Did the model flag a normal packet as an Anomaly? Select it below to add it to the training set.")
-    
+    st.write("Did the model flag a normal packet as an Anomaly? Select it below.")
     if len(st.session_state.history) > 0:
         history_df = pd.DataFrame(st.session_state.history)
-        # Filter for anomalies
         anomalies = history_df[history_df['Status'] == "🚨 ANOMALY"]
         
         if not anomalies.empty:
             selected_id = st.selectbox("Select Packet ID to Report:", anomalies['Packet ID'])
-            
             if st.button("Mark as False Positive (Safe)"):
-                # Fetch data
                 row_data = X_data.iloc[[selected_id]]
                 feedback_file = "data/feedback_loop.csv"
-                
-                # Save
                 header = not os.path.exists(feedback_file)
                 row_data.to_csv(feedback_file, mode='a', header=header, index=False)
-                
-                st.success(f"Packet #{selected_id} flagged as False Positive! Saved to retraining pipeline.")
+                st.success(f"Packet #{selected_id} saved to Retraining Pipeline!")
         else:
             st.info("No anomalies detected yet.")
-    else:
-        st.info("Run the simulation first to generate data.")

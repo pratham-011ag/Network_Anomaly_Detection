@@ -5,7 +5,7 @@ import joblib
 import os
 
 # --- NEW IMPORT: Decouples the data logic from the model logic ---
-from src.data_loader import load_data
+from data_loader import load_data
 
 MODEL_PATH = "models/kdd_isolation_forest_fixed.pkl"
 os.makedirs("models", exist_ok=True)
